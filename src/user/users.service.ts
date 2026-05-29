@@ -27,6 +27,18 @@ export class UsersService {
     private readonly authService: AuthService,
   ) {}
 
+  async findOne(
+    requestingUser: AuthenticatedUser,
+    userId: string,
+  ): Promise<UserPublic> {
+    const user = await this.userService.findById(userId);
+    if (!user) {
+      throw new NotFoundException(`User ${userId} not found`);
+    }
+    assertClinicAccess(requestingUser, user.clinicId.toString());
+    return this.userService.toPublic(user);
+  }
+
   async list(
     requestingUser: AuthenticatedUser,
     clinicId?: string,
@@ -125,6 +137,13 @@ export class UsersService {
 
     if (dto.password) {
       user.passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    }
+
+    if (dto.isActive !== undefined) {
+      if (userId === requestingUser.id && dto.isActive === false) {
+        throw new ForbiddenException('You cannot disable your own account');
+      }
+      user.isActive = dto.isActive;
     }
 
     if (!user.email?.trim() && !user.phone?.trim()) {

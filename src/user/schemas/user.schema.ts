@@ -30,6 +30,9 @@ export class User {
 
   @Prop({ type: Types.ObjectId, ref: 'Clinic', required: true, index: true })
   clinicId: Types.ObjectId;
+
+  @Prop({ default: true, index: true })
+  isActive: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

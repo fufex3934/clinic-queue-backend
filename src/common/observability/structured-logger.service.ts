@@ -57,7 +57,14 @@ export class StructuredLoggerService {
   }
 
   logQueue(payload: {
-    action: 'queue.add' | 'queue.serve-next' | 'queue.get-today';
+    action:
+      | 'queue.add'
+      | 'queue.serve-next'
+      | 'queue.get-today'
+      | 'queue.skip'
+      | 'queue.remove'
+      | 'queue.force-serve'
+      | 'queue.reorder';
     userId?: string;
     clinicId?: string;
     meta?: Record<string, unknown>;

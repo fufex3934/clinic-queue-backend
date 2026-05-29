@@ -7,6 +7,7 @@ export enum QueueStatus {
   WAITING = 'waiting',
   SERVING = 'serving',
   DONE = 'done',
+  SKIPPED = 'skipped',
 }
 
 @Schema({ timestamps: true, collection: 'queues' })

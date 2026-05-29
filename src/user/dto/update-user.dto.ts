@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsOptional,
@@ -33,4 +34,8 @@ export class UpdateUserDto {
   @IsString()
   @MinLength(8, { message: 'password must be at least 8 characters' })
   password?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

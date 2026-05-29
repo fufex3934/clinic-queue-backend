@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import { Clinic, ClinicSchema } from '../clinic/schemas/clinic.schema';
 import { PatientModule } from '../patient/patient.module';
 import { QueueModule } from '../queue/queue.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 import { AppointmentController } from './appointment.controller';
 import { AppointmentService } from './appointment.service';
 import {
@@ -15,8 +17,10 @@ import {
     AuthModule,
     PatientModule,
     QueueModule,
+    RealtimeModule,
     MongooseModule.forFeature([
       { name: Appointment.name, schema: AppointmentSchema },
+      { name: Clinic.name, schema: ClinicSchema },
     ]),
   ],
   controllers: [AppointmentController],

@@ -1,7 +1,8 @@
 import { Transform } from 'class-transformer';
 import { IsDateString, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { ClinicScopeQueryDto } from '../../common/dto/clinic-scope-query.dto';
 
-export class GetAppointmentsQueryDto {
+export class GetAppointmentsQueryDto extends ClinicScopeQueryDto {
   @IsDateString({}, { message: 'date query param is required (YYYY-MM-DD)' })
   date: string;
 

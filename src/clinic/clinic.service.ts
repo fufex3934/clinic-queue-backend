@@ -60,10 +60,16 @@ export class ClinicService {
 
   async removeScoped(id: string, user: AuthenticatedUser) {
     if (!isPlatformAdmin(user)) {
-      throw new ForbiddenException('Only platform administrators can delete clinics');
+      throw new ForbiddenException(
+        'Only platform administrators can deactivate clinics',
+      );
     }
     const clinic = await this.clinicModel
-      .findByIdAndDelete(toObjectId(id))
+      .findByIdAndUpdate(
+        toObjectId(id),
+        { isActive: false },
+        { new: true },
+      )
       .exec();
     if (!clinic) {
       throw new NotFoundException(`Clinic ${id} not found`);

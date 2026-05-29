@@ -9,6 +9,7 @@ import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { toStartOfDay } from '../common/utils/date.util';
 import { toObjectId } from '../common/utils/mongo.util';
+import { Clinic, ClinicDocument } from '../clinic/schemas/clinic.schema';
 import { PatientService } from '../patient/patient.service';
 import { QueueService } from '../queue/queue.service';
 import { MAX_APPOINTMENTS_PER_SLOT } from './constants';
@@ -38,6 +39,8 @@ export class AppointmentService {
   constructor(
     @InjectModel(Appointment.name)
     private readonly appointmentModel: Model<AppointmentDocument>,
+    @InjectModel(Clinic.name)
+    private readonly clinicModel: Model<ClinicDocument>,
     private readonly patientService: PatientService,
     private readonly queueService: QueueService,
     @InjectConnection()
@@ -160,17 +163,82 @@ export class AppointmentService {
     };
   }
 
+  async confirm(clinicId: string, appointmentId: string) {
+    return this.transitionStatus(
+      clinicId,
+      appointmentId,
+      [AppointmentStatus.SCHEDULED],
+      AppointmentStatus.CONFIRMED,
+    );
+  }
+
+  async complete(clinicId: string, appointmentId: string) {
+    return this.transitionStatus(
+      clinicId,
+      appointmentId,
+      [
+        AppointmentStatus.SCHEDULED,
+        AppointmentStatus.CONFIRMED,
+        AppointmentStatus.ARRIVED,
+      ],
+      AppointmentStatus.COMPLETED,
+    );
+  }
+
+  async markNoShow(clinicId: string, appointmentId: string) {
+    return this.transitionStatus(
+      clinicId,
+      appointmentId,
+      [AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED],
+      AppointmentStatus.NO_SHOW,
+    );
+  }
+
+  async cancel(clinicId: string, appointmentId: string) {
+    const appointment = await this.findOneInClinic(clinicId, appointmentId);
+    if (!appointment) {
+      throw new NotFoundException(`Appointment ${appointmentId} not found`);
+    }
+
+    if (
+      appointment.status === AppointmentStatus.CANCELLED ||
+      appointment.status === AppointmentStatus.COMPLETED ||
+      appointment.status === AppointmentStatus.ARRIVED
+    ) {
+      throw new ConflictException(
+        `Cannot cancel appointment with status ${appointment.status}`,
+      );
+    }
+
+    appointment.status = AppointmentStatus.CANCELLED;
+    await appointment.save();
+    return appointment.populate('patientId', 'name phone');
+  }
+
   private async assertSlotAvailable(
     slotScope: AppointmentSlotScope,
     session: ClientSession,
   ): Promise<void> {
     const activeCount = await this.countActiveInSlot(slotScope, session);
+    const maxPerSlot = await this.getMaxAppointmentsPerSlot(
+      slotScope.clinicObjectId,
+    );
 
-    if (activeCount >= MAX_APPOINTMENTS_PER_SLOT) {
+    if (activeCount >= maxPerSlot) {
       throw new ConflictException(
-        `Time slot ${slotScope.timeSlot} is full for this clinic (${MAX_APPOINTMENTS_PER_SLOT} appointments)`,
+        `Time slot ${slotScope.timeSlot} is full for this clinic (${maxPerSlot} appointments)`,
       );
     }
+  }
+
+  private async getMaxAppointmentsPerSlot(
+    clinicObjectId: Types.ObjectId,
+  ): Promise<number> {
+    const clinic = await this.clinicModel
+      .findById(clinicObjectId)
+      .select('maxAppointmentsPerSlot')
+      .exec();
+    return clinic?.maxAppointmentsPerSlot ?? MAX_APPOINTMENTS_PER_SLOT;
   }
 
   private countActiveInSlot(
@@ -186,6 +254,39 @@ export class AppointmentService {
         session ? { session } : undefined,
       )
       .exec();
+  }
+
+  private async transitionStatus(
+    clinicId: string,
+    appointmentId: string,
+    allowedFrom: AppointmentStatus[],
+    target: AppointmentStatus,
+  ) {
+    const appointment = await this.findOneInClinic(clinicId, appointmentId);
+    if (!appointment) {
+      throw new NotFoundException(`Appointment ${appointmentId} not found`);
+    }
+
+    if (appointment.status === AppointmentStatus.COMPLETED) {
+      throw new ConflictException('Completed appointments cannot be changed');
+    }
+
+    if (
+      target === AppointmentStatus.CONFIRMED &&
+      appointment.status === AppointmentStatus.CANCELLED
+    ) {
+      throw new ConflictException('Cannot confirm a cancelled appointment');
+    }
+
+    if (!allowedFrom.includes(appointment.status)) {
+      throw new ConflictException(
+        `Cannot change status from '${appointment.status}' to '${target}'`,
+      );
+    }
+
+    appointment.status = target;
+    await appointment.save();
+    return appointment.populate('patientId', 'name phone');
   }
 
   private async findOneInClinic(clinicId: string, appointmentId: string) {

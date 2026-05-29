@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -164,6 +165,140 @@ export class QueueService {
     } finally {
       await session.endSession();
     }
+  }
+
+  async skipEntry(clinicId: string, entryId: string) {
+    const entry = await this.findTodayEntry(clinicId, entryId);
+    if (entry.status !== QueueStatus.WAITING) {
+      throw new ConflictException('Only waiting patients can be skipped');
+    }
+    entry.status = QueueStatus.SKIPPED;
+    await entry.save();
+    await entry.populate('patientId', 'name phone');
+    return entry;
+  }
+
+  async removeEntry(clinicId: string, entryId: string) {
+    const entry = await this.findTodayEntry(clinicId, entryId);
+    if (entry.status === QueueStatus.SERVING) {
+      throw new ConflictException(
+        'Cannot remove the patient currently being served',
+      );
+    }
+    await entry.deleteOne();
+    return { deleted: true, id: entryId };
+  }
+
+  async forceServeEntry(clinicId: string, entryId: string) {
+    const scope = resolveClinicDayScope(clinicId);
+    const session = await this.connection.startSession();
+
+    try {
+      const entry = await session.withTransaction(async () => {
+        await this.queueModel
+          .updateMany(
+            {
+              clinicId: scope.clinicObjectId,
+              date: scope.date,
+              status: QueueStatus.SERVING,
+            },
+            { status: QueueStatus.DONE },
+            { session },
+          )
+          .exec();
+
+        return this.queueModel
+          .findOneAndUpdate(
+            {
+              _id: toObjectId(entryId),
+              clinicId: scope.clinicObjectId,
+              date: scope.date,
+              status: { $in: [QueueStatus.WAITING, QueueStatus.SKIPPED] },
+            },
+            { status: QueueStatus.SERVING },
+            { new: true, session },
+          )
+          .populate('patientId', 'name phone')
+          .exec();
+      });
+
+      if (!entry) {
+        throw new NotFoundException(
+          'Queue entry not found or cannot be served (must be waiting or skipped)',
+        );
+      }
+
+      return entry;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async reorderWaiting(clinicId: string, orderedEntryIds: string[]) {
+    const scope = resolveClinicDayScope(clinicId);
+    const uniqueIds = [...new Set(orderedEntryIds)];
+
+    const waiting = await this.queueModel
+      .find({
+        clinicId: scope.clinicObjectId,
+        date: scope.date,
+        status: QueueStatus.WAITING,
+      })
+      .sort({ tokenNumber: 1 })
+      .exec();
+
+    if (uniqueIds.length !== waiting.length) {
+      throw new BadRequestException(
+        'orderedEntryIds must include every waiting entry exactly once',
+      );
+    }
+
+    const waitingIdSet = new Set(waiting.map((e) => e._id.toString()));
+    for (const id of uniqueIds) {
+      if (!waitingIdSet.has(id)) {
+        throw new BadRequestException(
+          `Queue entry ${id} is not in today's waiting list`,
+        );
+      }
+    }
+
+    const tokenNumbers = waiting.map((e) => e.tokenNumber).sort((a, b) => a - b);
+    const session = await this.connection.startSession();
+
+    try {
+      await session.withTransaction(async () => {
+        for (let i = 0; i < uniqueIds.length; i++) {
+          await this.queueModel
+            .updateOne(
+              { _id: toObjectId(uniqueIds[i]) },
+              { tokenNumber: tokenNumbers[i] },
+              { session },
+            )
+            .exec();
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    return this.getToday(clinicId);
+  }
+
+  private async findTodayEntry(clinicId: string, entryId: string) {
+    const scope = resolveClinicDayScope(clinicId);
+    const entry = await this.queueModel
+      .findOne({
+        _id: toObjectId(entryId),
+        clinicId: scope.clinicObjectId,
+        date: scope.date,
+      })
+      .exec();
+
+    if (!entry) {
+      throw new NotFoundException(`Queue entry ${entryId} not found for today`);
+    }
+
+    return entry;
   }
 
   private isDuplicateKeyError(error: unknown): boolean {

@@ -35,6 +35,14 @@ export class UsersController {
     return this.usersService.list(user, query.clinicId);
   }
 
+  @Get(':id')
+  findOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.usersService.findOne(user, id);
+  }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(

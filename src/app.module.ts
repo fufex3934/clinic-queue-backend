@@ -19,6 +19,7 @@ import { validateEnvironment } from './config/validate-env';
 import { HealthModule } from './health/health.module';
 import { PatientModule } from './patient/patient.module';
 import { QueueModule } from './queue/queue.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { StatsModule } from './stats/stats.module';
 import { UserModule } from './user/user.module';
 
@@ -50,6 +51,7 @@ import { UserModule } from './user/user.module';
     AppointmentModule,
     QueueModule,
     StatsModule,
+    RealtimeModule,
   ],
   providers: [
     {

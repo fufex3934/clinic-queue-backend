@@ -70,6 +70,7 @@ export class UserService {
       phone: user.phone,
       role: user.role,
       clinicId: user.clinicId.toString(),
+      isActive: user.isActive !== false,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };

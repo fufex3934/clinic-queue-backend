@@ -7,6 +7,7 @@ export interface UserPublic {
   phone?: string;
   role: UserRole;
   clinicId: string;
+  isActive: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

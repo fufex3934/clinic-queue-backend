@@ -26,6 +26,7 @@ const QUEUE_STATUS_LABELS: Record<QueueStatus, string> = {
   [QueueStatus.WAITING]: 'Waiting',
   [QueueStatus.SERVING]: 'Serving',
   [QueueStatus.DONE]: 'Completed',
+  [QueueStatus.SKIPPED]: 'Skipped',
 };
 
 const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
@@ -59,15 +60,28 @@ export class StatsService {
     const last7Days = this.buildLastNDays(7);
     const dayDates = last7Days.map((d) => d.date);
 
+    const tomorrow = this.addUtcDays(today, 1);
+    const clinic = await this.clinicModel.findById(clinicObjectId).exec();
+    const slotCapacity =
+      clinic?.maxAppointmentsPerSlot ?? MAX_APPOINTMENTS_PER_SLOT;
+
     const [
       patientsTotal,
+      patientsCreatedToday,
       queueStatusTodayRaw,
       queueByDayRaw,
       appointmentsByDayRaw,
       appointmentStatusTodayRaw,
       appointmentsBySlotRaw,
+      averageWaitMinutes,
     ] = await Promise.all([
       this.patientModel.countDocuments({ clinicId: clinicObjectId }).exec(),
+      this.patientModel
+        .countDocuments({
+          clinicId: clinicObjectId,
+          createdAt: { $gte: today, $lt: tomorrow },
+        })
+        .exec(),
       this.aggregateQueueStatusToday([clinicObjectId], today),
       this.aggregateQueueByDay([clinicObjectId], dayDates),
       this.aggregateAppointmentsByDay([clinicObjectId], dayDates),
@@ -79,6 +93,7 @@ export class StatsService {
           { $sort: { _id: 1 } },
         ])
         .exec(),
+      this.computeAverageWaitMinutes(clinicObjectId, today),
     ]);
 
     const queueKpis = this.resolveQueueKpis(queueStatusTodayRaw);
@@ -91,8 +106,10 @@ export class StatsService {
       today: todayKey,
       kpis: {
         patientsTotal,
+        patientsCreatedToday,
         ...queueKpis,
         ...appointmentKpis,
+        averageWaitMinutes,
       },
       queueLast7Days: this.mapQueueSeries(last7Days, queueByDayRaw),
       appointmentsLast7Days: this.mapAppointmentSeries(
@@ -106,7 +123,11 @@ export class StatsService {
       appointmentsBySlotToday: appointmentsBySlotRaw.map((row) => ({
         slot: row._id,
         count: row.count,
-        capacity: MAX_APPOINTMENTS_PER_SLOT,
+        capacity: slotCapacity,
+      })),
+      peakHoursToday: appointmentsBySlotRaw.map((row) => ({
+        slot: row._id,
+        count: row.count,
       })),
     };
   }
@@ -188,12 +209,15 @@ export class StatsService {
       return {
         clinicId: id,
         name: clinic.name,
+        isActive: clinic.isActive !== false,
         patientsTotal: patientMap.get(id) ?? 0,
         queueWaiting: queue?.waiting ?? 0,
         queueTotalToday: queue?.total ?? 0,
         appointmentsToday: apptMap.get(id) ?? 0,
       };
     });
+
+    const clinicsGrowth = this.buildClinicsGrowthSeries(last7Days, clinics);
 
     return {
       scope: 'platform',
@@ -210,6 +234,7 @@ export class StatsService {
         appointmentsArrivedToday: appointmentKpis.appointmentsArrivedToday,
       },
       clinicsOverview,
+      clinicsGrowth,
       queueLast7Days: this.mapQueueSeries(last7Days, queueByDayRaw),
       appointmentsLast7Days: this.mapAppointmentSeries(
         last7Days,
@@ -425,6 +450,53 @@ export class StatsService {
         count: appointmentStatusMap.get(status) ?? 0,
       }))
       .filter((row) => row.count > 0);
+  }
+
+  private async computeAverageWaitMinutes(
+    clinicObjectId: Types.ObjectId,
+    today: Date,
+  ): Promise<number | null> {
+    const rows = await this.queueModel
+      .find({
+        clinicId: clinicObjectId,
+        date: today,
+        status: QueueStatus.DONE,
+      })
+      .select('createdAt updatedAt')
+      .exec();
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const totalMs = rows.reduce((sum, row) => {
+      const doc = row as typeof row & { createdAt?: Date; updatedAt?: Date };
+      const start = doc.createdAt?.getTime() ?? 0;
+      const end = doc.updatedAt?.getTime() ?? start;
+      return sum + Math.max(0, end - start);
+    }, 0);
+
+    return Math.round(totalMs / rows.length / 60_000);
+  }
+
+  private buildClinicsGrowthSeries(
+    last7Days: { date: Date; label: string; dateKey: string }[],
+    clinics: ClinicDocument[],
+  ) {
+    return last7Days.map(({ date, label, dateKey }) => {
+      const end = this.addUtcDays(date, 1);
+      const total = clinics.filter((c) => {
+        const doc = c as ClinicDocument & { createdAt?: Date };
+        return doc.createdAt && doc.createdAt < end;
+      }).length;
+      return { date: dateKey, label, total };
+    });
+  }
+
+  private addUtcDays(base: Date, offset: number): Date {
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() + offset);
+    return d;
   }
 
   private buildLastNDays(n: number): {

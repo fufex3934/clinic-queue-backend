@@ -3,10 +3,12 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { createHash, randomBytes } from 'crypto';
 import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Clinic, ClinicDocument } from '../clinic/schemas/clinic.schema';
@@ -16,21 +18,33 @@ import { toObjectId } from '../common/utils/mongo.util';
 import { UserDocument, UserRole } from '../user/schemas/user.schema';
 import { UserService } from '../user/user.service';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import {
+  PasswordResetToken,
+  PasswordResetTokenDocument,
+} from './schemas/password-reset-token.schema';
 import {
   AuthResponse,
   AuthUserResponse,
 } from './interfaces/auth-user.interface';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
     @InjectModel(Clinic.name)
     private readonly clinicModel: Model<ClinicDocument>,
+    @InjectModel(PasswordResetToken.name)
+    private readonly resetTokenModel: Model<PasswordResetTokenDocument>,
   ) {}
 
   async register(
@@ -102,7 +116,77 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (user.isActive === false) {
+      throw new UnauthorizedException('Account is disabled');
+    }
+
+    if (user.role !== UserRole.PLATFORM_ADMIN) {
+      const clinic = await this.clinicModel.findById(user.clinicId).exec();
+      if (!clinic || clinic.isActive === false) {
+        throw new UnauthorizedException('Clinic is deactivated');
+      }
+    }
+
     return this.buildAuthResponse(user);
+  }
+
+  async forgotPassword(
+    dto: ForgotPasswordDto,
+  ): Promise<{ message: string; resetToken?: string }> {
+    const message =
+      'If an account exists for this identifier, password reset instructions have been sent.';
+
+    const user = await this.findUserWithPassword(dto.identifier.trim());
+    if (!user) {
+      return { message };
+    }
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+    await this.resetTokenModel.create({
+      userId: user._id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+      usedAt: null,
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log(
+        `Password reset token for ${dto.identifier}: ${rawToken}`,
+      );
+      return { message, resetToken: rawToken };
+    }
+
+    return { message };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    const tokenHash = createHash('sha256').update(dto.token).digest('hex');
+    const record = await this.resetTokenModel
+      .findOne({
+        tokenHash,
+        usedAt: null,
+        expiresAt: { $gt: new Date() },
+      })
+      .exec();
+
+    if (!record) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    const user = await this.userService.findById(record.userId.toString());
+    if (!user) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    user.passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    await user.save();
+
+    record.usedAt = new Date();
+    await record.save();
+
+    return { message: 'Password has been reset. You can sign in now.' };
   }
 
   getProfile(user: {

@@ -25,8 +25,14 @@ export interface SlotUtilization {
   capacity: number;
 }
 
+export interface SlotCount {
+  slot: string;
+  count: number;
+}
+
 export interface ClinicDashboardKpis {
   patientsTotal: number;
+  patientsCreatedToday: number;
   queueWaiting: number;
   queueServing: number;
   queueCompletedToday: number;
@@ -34,6 +40,7 @@ export interface ClinicDashboardKpis {
   appointmentsToday: number;
   appointmentsArrivedToday: number;
   appointmentsScheduledToday: number;
+  averageWaitMinutes: number | null;
 }
 
 export interface ClinicDashboardStats {
@@ -47,11 +54,13 @@ export interface ClinicDashboardStats {
   queueStatusToday: StatusCount[];
   appointmentStatusToday: StatusCount[];
   appointmentsBySlotToday: SlotUtilization[];
+  peakHoursToday: SlotCount[];
 }
 
 export interface ClinicOverviewRow {
   clinicId: string;
   name: string;
+  isActive: boolean;
   patientsTotal: number;
   queueWaiting: number;
   queueTotalToday: number;
@@ -79,6 +88,7 @@ export interface PlatformDashboardStats {
   appointmentsLast7Days: AppointmentDaySeriesPoint[];
   queueStatusToday: StatusCount[];
   appointmentStatusToday: StatusCount[];
+  clinicsGrowth: DaySeriesPoint[];
 }
 
 export type DashboardStatsResponse =

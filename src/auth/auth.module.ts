@@ -4,6 +4,10 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Clinic, ClinicSchema } from '../clinic/schemas/clinic.schema';
+import {
+  PasswordResetToken,
+  PasswordResetTokenSchema,
+} from './schemas/password-reset-token.schema';
 import { UserModule } from '../user/user.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -27,7 +31,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         };
       },
     }),
-    MongooseModule.forFeature([{ name: Clinic.name, schema: ClinicSchema }]),
+    MongooseModule.forFeature([
+      { name: Clinic.name, schema: ClinicSchema },
+      { name: PasswordResetToken.name, schema: PasswordResetTokenSchema },
+    ]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],

@@ -4,6 +4,7 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import { ConflictException } from '@nestjs/common';
 import { AppointmentService } from './appointment.service';
 import { Appointment, AppointmentStatus } from './schemas/appointment.schema';
+import { Clinic } from '../clinic/schemas/clinic.schema';
 import { PatientService } from '../patient/patient.service';
 import { QueueService } from '../queue/queue.service';
 import { MAX_APPOINTMENTS_PER_SLOT } from './constants';
@@ -18,6 +19,13 @@ describe('AppointmentService slot limits', () => {
   const patientService = { existsInClinic: jest.fn().mockResolvedValue(true) };
   const queueService = {};
   const connection = { startSession: jest.fn() };
+  const clinicModel = {
+    findById: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ maxAppointmentsPerSlot: MAX_APPOINTMENTS_PER_SLOT }),
+      }),
+    }),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -25,6 +33,7 @@ describe('AppointmentService slot limits', () => {
       providers: [
         AppointmentService,
         { provide: getModelToken(Appointment.name), useValue: appointmentModel },
+        { provide: getModelToken(Clinic.name), useValue: clinicModel },
         { provide: PatientService, useValue: patientService },
         { provide: QueueService, useValue: queueService },
         { provide: getConnectionToken(), useValue: connection },
