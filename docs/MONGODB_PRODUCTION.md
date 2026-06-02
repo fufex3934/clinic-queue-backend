@@ -48,3 +48,25 @@ Set `MONGODB_URI` to your replica set connection string, for example:
 ```
 MONGODB_URI=mongodb://localhost:27017/clinic-queue?replicaSet=rs0
 ```
+
+## Backup and restore automation
+
+Daily backup script:
+
+```bash
+cd backend
+MONGODB_URI="mongodb://localhost:27017/clinic_queue?replicaSet=rs0" ./scripts/backup-mongodb.sh
+```
+
+Restore from a backup folder:
+
+```bash
+cd backend
+MONGODB_URI="mongodb://localhost:27017/clinic_queue?replicaSet=rs0" ./scripts/restore-mongodb.sh ./backups/20260602_020000
+```
+
+Cron example (2 AM daily):
+
+```cron
+0 2 * * * cd /path/to/clinic_queue/backend && MONGODB_URI="mongodb://localhost:27017/clinic_queue?replicaSet=rs0" ./scripts/backup-mongodb.sh >> /var/log/clinic-backup.log 2>&1
+```
