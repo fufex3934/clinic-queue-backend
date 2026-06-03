@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -8,13 +9,20 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { ClinicContactFieldsDto } from './clinic-contact.dto';
 
-export class UpdateClinicDto {
+export class UpdateClinicDto extends ClinicContactFieldsDto {
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsOptional()
   @IsString()
   @MinLength(1)
   name?: string;
 
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsOptional()
   @IsString()
   @MinLength(1)

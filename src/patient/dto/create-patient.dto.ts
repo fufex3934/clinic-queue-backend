@@ -6,8 +6,9 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { PatientProfileFieldsDto } from './patient-profile.dto';
 
-export class CreatePatientDto {
+export class CreatePatientDto extends PatientProfileFieldsDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty({ message: 'name is required' })

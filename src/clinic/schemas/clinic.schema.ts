@@ -8,8 +8,27 @@ export class Clinic {
   @Prop({ required: true, trim: true })
   name: string;
 
+  /** Display / legacy single-line address label */
   @Prop({ required: true, trim: true })
   location: string;
+
+  @Prop({ trim: true })
+  phone?: string;
+
+  @Prop({ trim: true, lowercase: true })
+  email?: string;
+
+  @Prop({ default: 'Africa/Addis_Ababa', trim: true })
+  timezone: string;
+
+  @Prop({ trim: true })
+  addressLine?: string;
+
+  @Prop({ trim: true })
+  city?: string;
+
+  @Prop({ trim: true })
+  country?: string;
 
   @Prop({ default: true, index: true })
   isActive: boolean;
