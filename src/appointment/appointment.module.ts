@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { Clinic, ClinicSchema } from '../clinic/schemas/clinic.schema';
 import { PatientModule } from '../patient/patient.module';
 import { QueueModule } from '../queue/queue.module';
+import { PaymentModule } from '../payment/payment.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { AppointmentController } from './appointment.controller';
 import { AppointmentService } from './appointment.service';
@@ -17,6 +18,7 @@ import {
     AuthModule,
     PatientModule,
     QueueModule,
+    PaymentModule,
     RealtimeModule,
     MongooseModule.forFeature([
       { name: Appointment.name, schema: AppointmentSchema },

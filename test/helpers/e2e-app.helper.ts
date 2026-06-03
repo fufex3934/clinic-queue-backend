@@ -65,6 +65,19 @@ export async function createE2eApp(): Promise<E2eContext> {
     updatedAt: new Date(),
   });
 
+  const now = new Date();
+  const endDate = new Date(now);
+  endDate.setUTCDate(endDate.getUTCDate() + 30);
+  await connection.collection('subscriptions').insertOne({
+    clinicId: clinicInsert.insertedId,
+    plan: 'starter',
+    startDate: now,
+    endDate,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+
   return { app, replSet, clinicId };
 }
 

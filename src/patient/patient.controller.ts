@@ -17,6 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { ClinicScopeQueryDto } from '../common/dto/clinic-scope-query.dto';
 import { resolveOperationalClinicId } from '../common/tenant/resolve-operational-clinic-id.util';
+import { SubscriptionGuard } from '../payment/guards/subscription.guard';
 import { UserRole } from '../user/schemas/user.schema';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { ListPatientsQueryDto } from './dto/list-patients-query.dto';
@@ -24,8 +25,8 @@ import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientService } from './patient.service';
 
 @Controller('patients')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.PLATFORM_ADMIN)
+@UseGuards(JwtAuthGuard, RolesGuard, SubscriptionGuard)
+@Roles(UserRole.ADMIN, UserRole.RECEPTIONIST)
 export class PatientController {
   constructor(private readonly patientService: PatientService) {}
 
@@ -46,7 +47,7 @@ export class PatientController {
     @Query() query: ListPatientsQueryDto,
   ) {
     const clinicId = resolveOperationalClinicId(user, query.clinicId);
-    return this.patientService.findAll(clinicId, query.search);
+    return this.patientService.findAll(clinicId, query);
   }
 
   @Get(':id')

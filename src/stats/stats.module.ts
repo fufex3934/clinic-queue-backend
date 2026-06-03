@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import { PaymentModule } from '../payment/payment.module';
 import {
   Appointment,
   AppointmentSchema,
@@ -15,6 +16,7 @@ import { StatsService } from './stats.service';
 @Module({
   imports: [
     AuthModule,
+    PaymentModule,
     MongooseModule.forFeature([
       { name: Patient.name, schema: PatientSchema },
       { name: Queue.name, schema: QueueSchema },

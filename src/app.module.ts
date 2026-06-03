@@ -10,6 +10,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from './auth/auth.module';
 import { AppointmentModule } from './appointment/appointment.module';
 import { BootstrapModule } from './common/bootstrap/bootstrap.module';
+import { MailModule } from './common/mail/mail.module';
+import { StorageModule } from './common/storage/storage.module';
 import { ClinicModule } from './clinic/clinic.module';
 import { ErrorLoggingInterceptor } from './common/observability/error-logging.interceptor';
 import { ObservabilityModule } from './common/observability/observability.module';
@@ -19,6 +21,7 @@ import { validateEnvironment } from './config/validate-env';
 import { HealthModule } from './health/health.module';
 import { PatientModule } from './patient/patient.module';
 import { QueueModule } from './queue/queue.module';
+import { PaymentModule } from './payment/payment.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { StatsModule } from './stats/stats.module';
 import { UserModule } from './user/user.module';
@@ -42,6 +45,8 @@ import { UserModule } from './user/user.module';
       }),
     }),
     ObservabilityModule,
+    MailModule,
+    StorageModule,
     BootstrapModule,
     HealthModule,
     AuthModule,
@@ -52,6 +57,7 @@ import { UserModule } from './user/user.module';
     QueueModule,
     StatsModule,
     RealtimeModule,
+    PaymentModule,
   ],
   providers: [
     {

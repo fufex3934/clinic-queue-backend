@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { ClinicScopeQueryDto } from '../common/dto/clinic-scope-query.dto';
 import { resolveOperationalClinicId } from '../common/tenant/resolve-operational-clinic-id.util';
+import { SubscriptionGuard } from '../payment/guards/subscription.guard';
 import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 import { UserRole } from '../user/schemas/user.schema';
 import { AppointmentService } from './appointment.service';
@@ -23,8 +24,8 @@ import { BookAppointmentDto } from './dto/book-appointment.dto';
 import { GetAppointmentsQueryDto } from './dto/get-appointments-query.dto';
 
 @Controller('appointments')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.PLATFORM_ADMIN)
+@UseGuards(JwtAuthGuard, RolesGuard, SubscriptionGuard)
+@Roles(UserRole.ADMIN, UserRole.RECEPTIONIST)
 export class AppointmentController {
   constructor(
     private readonly appointmentService: AppointmentService,
@@ -33,13 +34,21 @@ export class AppointmentController {
 
   @Post('book')
   @HttpCode(HttpStatus.CREATED)
-  book(
+  async book(
     @CurrentUser() user: AuthenticatedUser,
     @Body() bookAppointmentDto: BookAppointmentDto,
     @Query() scope: ClinicScopeQueryDto,
   ) {
     const clinicId = resolveOperationalClinicId(user, scope.clinicId);
-    return this.appointmentService.book(clinicId, bookAppointmentDto);
+    const appointment = await this.appointmentService.book(
+      clinicId,
+      bookAppointmentDto,
+    );
+    this.realtimeEmitter.emitToClinic(clinicId, 'appointment.updated', {
+      appointmentId: String(appointment._id),
+      status: appointment.status,
+    });
+    return appointment;
   }
 
   @Get()

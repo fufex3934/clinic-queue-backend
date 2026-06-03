@@ -18,8 +18,10 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import { UserRole } from '../user/schemas/user.schema';
+import { SkipSubscription } from '../payment/decorators/skip-subscription.decorator';
 
 @Controller('auth')
+@SkipSubscription()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

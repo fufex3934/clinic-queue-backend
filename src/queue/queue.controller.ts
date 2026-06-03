@@ -18,6 +18,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { resolveOperationalClinicId } from '../common/tenant/resolve-operational-clinic-id.util';
 import { StructuredLoggerService } from '../common/observability/structured-logger.service';
+import { SubscriptionGuard } from '../payment/guards/subscription.guard';
 import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 import { UserRole } from '../user/schemas/user.schema';
 import { AddToQueueDto } from './dto/add-to-queue.dto';
@@ -26,8 +27,8 @@ import { ReorderQueueDto } from './dto/reorder-queue.dto';
 import { QueueService } from './queue.service';
 
 @Controller('queue')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.PLATFORM_ADMIN)
+@UseGuards(JwtAuthGuard, RolesGuard, SubscriptionGuard)
+@Roles(UserRole.ADMIN, UserRole.RECEPTIONIST)
 export class QueueController {
   constructor(
     private readonly queueService: QueueService,
@@ -92,7 +93,7 @@ export class QueueController {
   }
 
   @Patch('reorder')
-  @Roles(UserRole.ADMIN, UserRole.PLATFORM_ADMIN)
+  @Roles(UserRole.ADMIN)
   async reorder(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ReorderQueueDto,
@@ -132,7 +133,7 @@ export class QueueController {
   }
 
   @Patch(':id/serve')
-  @Roles(UserRole.ADMIN, UserRole.PLATFORM_ADMIN)
+  @Roles(UserRole.ADMIN)
   async forceServe(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

@@ -6,7 +6,15 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
+import {
+  buildMongoSort,
+  buildPaginatedResult,
+  escapeRegex,
+  parsePagination,
+} from '../common/utils/pagination.util';
 import { toObjectId } from '../common/utils/mongo.util';
+import { ListPatientsQueryDto } from './dto/list-patients-query.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { Patient, PatientDocument } from './schemas/patient.schema';
@@ -35,20 +43,33 @@ export class PatientService {
     }
   }
 
-  async findAll(clinicId: string, search?: string) {
+  async findAll(
+    clinicId: string,
+    query: ListPatientsQueryDto,
+  ): Promise<PaginatedResult<PatientDocument>> {
     try {
+      const { page, limit, skip } = parsePagination(query);
       const filter: Record<string, unknown> = {
         clinicId: toObjectId(clinicId),
       };
-      if (search?.trim()) {
-        const q = search.trim();
-        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (query.search?.trim()) {
+        const escaped = escapeRegex(query.search.trim());
         filter.$or = [
           { name: { $regex: escaped, $options: 'i' } },
           { phone: { $regex: escaped, $options: 'i' } },
         ];
       }
-      return await this.patientModel.find(filter).sort({ createdAt: -1 }).exec();
+      const sort = buildMongoSort(
+        query.sortBy,
+        query.sortOrder,
+        { name: 'name', phone: 'phone', createdAt: 'createdAt' },
+        'createdAt',
+      );
+      const [items, total] = await Promise.all([
+        this.patientModel.find(filter).sort(sort).skip(skip).limit(limit).exec(),
+        this.patientModel.countDocuments(filter).exec(),
+      ]);
+      return buildPaginatedResult(items, total, page, limit);
     } catch {
       throw new InternalServerErrorException('Failed to fetch patients');
     }

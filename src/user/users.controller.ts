@@ -17,6 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { UserRole } from './schemas/user.schema';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ListPlatformUsersQueryDto } from './dto/list-platform-users-query.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
@@ -32,7 +33,16 @@ export class UsersController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListUsersQueryDto,
   ) {
-    return this.usersService.list(user, query.clinicId);
+    return this.usersService.list(user, query);
+  }
+
+  @Get('platform/all')
+  @Roles(UserRole.PLATFORM_ADMIN)
+  listAllPlatform(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListPlatformUsersQueryDto,
+  ) {
+    return this.usersService.listAllPlatform(user, query);
   }
 
   @Get(':id')

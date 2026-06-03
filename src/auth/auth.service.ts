@@ -13,6 +13,7 @@ import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Clinic, ClinicDocument } from '../clinic/schemas/clinic.schema';
 import { BCRYPT_ROUNDS } from '../common/constants/security.constants';
+import { MailService } from '../common/mail/mail.service';
 import { isPlatformAdmin } from '../common/tenant/clinic-tenant.util';
 import { toObjectId } from '../common/utils/mongo.util';
 import { UserDocument, UserRole } from '../user/schemas/user.schema';
@@ -41,6 +42,7 @@ export class AuthService {
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService,
     @InjectModel(Clinic.name)
     private readonly clinicModel: Model<ClinicDocument>,
     @InjectModel(PasswordResetToken.name)
@@ -151,6 +153,21 @@ export class AuthService {
       usedAt: null,
     });
 
+    const email = user.email?.trim();
+    if (email) {
+      const sent = await this.mailService.sendPasswordResetEmail(
+        email,
+        rawToken,
+      );
+      if (!sent && process.env.NODE_ENV !== 'production') {
+        this.logger.log(
+          `Password reset token for ${dto.identifier}: ${rawToken}`,
+        );
+        return { message, resetToken: rawToken };
+      }
+      return { message };
+    }
+
     if (process.env.NODE_ENV !== 'production') {
       this.logger.log(
         `Password reset token for ${dto.identifier}: ${rawToken}`,
@@ -241,14 +258,13 @@ export class AuthService {
       );
     }
 
-    if (
-      registerDto.role !== UserRole.ADMIN &&
-      registerDto.role !== UserRole.RECEPTIONIST
-    ) {
-      throw new ForbiddenException('Invalid role for clinic registration');
+    if (registerDto.role !== UserRole.RECEPTIONIST) {
+      throw new ForbiddenException(
+        'Clinic administrators can only create receptionist accounts',
+      );
     }
 
-    return registerDto.role;
+    return UserRole.RECEPTIONIST;
   }
 
   private async findUserWithPassword(identifier: string) {

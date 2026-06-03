@@ -5,7 +5,8 @@ export type RealtimeEvent =
   | 'queue.updated'
   | 'queue.added'
   | 'queue.served'
-  | 'appointment.updated';
+  | 'appointment.updated'
+  | 'payment.updated';
 
 @Injectable()
 export class RealtimeEmitterService {
@@ -27,5 +28,13 @@ export class RealtimeEmitterService {
     const room = `clinic:${clinicId}`;
     this.server.to(room).emit(event, { clinicId, ...payload });
     this.logger.debug(`Emitted ${event} to ${room}`);
+  }
+
+  emitToPlatform(event: RealtimeEvent, payload: Record<string, unknown>): void {
+    if (!this.server) {
+      return;
+    }
+    this.server.to('platform').emit(event, payload);
+    this.logger.debug(`Emitted ${event} to platform`);
   }
 }

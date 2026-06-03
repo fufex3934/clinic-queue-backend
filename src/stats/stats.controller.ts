@@ -9,10 +9,13 @@ import {
   isPlatformAdmin,
 } from '../common/tenant/clinic-tenant.util';
 import { UserRole } from '../user/schemas/user.schema';
+import { SkipSubscription } from '../payment/decorators/skip-subscription.decorator';
 import { StatsService } from './stats.service';
 
+/** Read-only analytics; allow when subscription lapsed so admins can see metrics and renew. */
 @Controller('stats')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@SkipSubscription()
 @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.PLATFORM_ADMIN)
 export class StatsController {
   constructor(private readonly statsService: StatsService) {}

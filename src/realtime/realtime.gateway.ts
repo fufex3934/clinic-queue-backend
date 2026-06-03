@@ -8,7 +8,12 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import {
+  assertClinicAccess,
+  isPlatformAdmin,
+} from '../common/tenant/clinic-tenant.util';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { UserService } from '../user/user.service';
 import { RealtimeEmitterService } from './realtime-emitter.service';
 
 @WebSocketGateway({
@@ -27,6 +32,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
   constructor(
     private readonly realtimeEmitter: RealtimeEmitterService,
     private readonly jwtService: JwtService,
+    private readonly userService: UserService,
   ) {}
 
   afterInit(): void {
@@ -46,13 +52,47 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
       }
 
       const payload = this.jwtService.verify<JwtPayload>(token);
-      const clinicId =
-        (client.handshake.query?.clinicId as string | undefined) ??
-        payload.clinicId;
+      const user = await this.userService.findById(payload.sub);
+      if (!user || user.isActive === false) {
+        client.disconnect(true);
+        return;
+      }
+
+      const authUser = {
+        id: user._id.toString(),
+        name: user.name,
+        role: user.role,
+        clinicId: user.clinicId.toString(),
+      };
+
+      const requestedClinicId = (
+        client.handshake.query?.clinicId as string | undefined
+      )?.trim();
+
+      if (isPlatformAdmin(authUser)) {
+        await client.join('platform');
+        client.data.isPlatform = true;
+        client.data.userId = authUser.id;
+        if (requestedClinicId) {
+          await client.join(`clinic:${requestedClinicId}`);
+          client.data.clinicId = requestedClinicId;
+        }
+        return;
+      }
+
+      const clinicId = authUser.clinicId;
+      if (requestedClinicId && requestedClinicId !== clinicId) {
+        this.logger.warn(
+          `WebSocket rejected cross-clinic join for user ${authUser.id}`,
+        );
+        client.disconnect(true);
+        return;
+      }
+      assertClinicAccess(authUser, clinicId);
 
       await client.join(`clinic:${clinicId}`);
       client.data.clinicId = clinicId;
-      client.data.userId = payload.sub;
+      client.data.userId = authUser.id;
     } catch {
       client.disconnect(true);
     }

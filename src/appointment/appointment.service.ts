@@ -9,6 +9,7 @@ import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { toStartOfDay } from '../common/utils/date.util';
 import { toObjectId } from '../common/utils/mongo.util';
+import { assertTimeSlotWithinWorkingHours } from '../common/utils/working-hours.util';
 import { Clinic, ClinicDocument } from '../clinic/schemas/clinic.schema';
 import { PatientService } from '../patient/patient.service';
 import { QueueService } from '../queue/queue.service';
@@ -65,6 +66,16 @@ export class AppointmentService {
       clinicId,
       bookAppointmentDto.date,
       bookAppointmentDto.timeSlot,
+    );
+
+    const clinic = await this.clinicModel.findById(slotScope.clinicObjectId).exec();
+    if (!clinic) {
+      throw new NotFoundException(`Clinic ${clinicId} not found`);
+    }
+    assertTimeSlotWithinWorkingHours(
+      slotScope.timeSlot,
+      clinic.workingHoursStart ?? '09:00',
+      clinic.workingHoursEnd ?? '17:00',
     );
 
     const session = await this.connection.startSession();

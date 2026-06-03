@@ -14,10 +14,14 @@ import {
   assertClinicAccess,
   isPlatformAdmin,
 } from '../common/tenant/clinic-tenant.util';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ListPlatformUsersQueryDto } from './dto/list-platform-users-query.dto';
+import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserPublic } from './interfaces/user-public.interface';
 import { UserRole } from './schemas/user.schema';
+import { UserDocument } from './schemas/user.schema';
 import { UserService } from './user.service';
 
 @Injectable()
@@ -36,18 +40,37 @@ export class UsersService {
       throw new NotFoundException(`User ${userId} not found`);
     }
     assertClinicAccess(requestingUser, user.clinicId.toString());
+    this.assertCanViewUser(requestingUser, user.role);
     return this.userService.toPublic(user);
+  }
+
+  async listAllPlatform(
+    requestingUser: AuthenticatedUser,
+    query: ListPlatformUsersQueryDto,
+  ) {
+    if (!isPlatformAdmin(requestingUser)) {
+      throw new ForbiddenException(
+        'Only platform administrators can list all users',
+      );
+    }
+    return this.userService.findAllForPlatformPaginated(query);
   }
 
   async list(
     requestingUser: AuthenticatedUser,
-    clinicId?: string,
-  ): Promise<UserPublic[]> {
-    const targetClinicId = this.resolveClinicId(requestingUser, clinicId);
+    query: ListUsersQueryDto,
+  ): Promise<PaginatedResult<UserPublic>> {
+    const targetClinicId = this.resolveClinicId(requestingUser, query.clinicId);
     assertClinicAccess(requestingUser, targetClinicId);
 
-    const users = await this.userService.findByClinicId(targetClinicId);
-    return users.map((u) => this.userService.toPublic(u));
+    const result = await this.userService.findClinicStaffPaginated(
+      targetClinicId,
+      query,
+    );
+    return {
+      ...result,
+      items: result.items.map((u) => this.userService.toPublic(u)),
+    };
   }
 
   async create(
@@ -86,26 +109,8 @@ export class UsersService {
 
     const targetClinicId = user.clinicId.toString();
     assertClinicAccess(requestingUser, targetClinicId);
-
-    if (!isPlatformAdmin(requestingUser)) {
-      if (user.role === UserRole.PLATFORM_ADMIN) {
-        throw new ForbiddenException(
-          'Only platform administrators can modify platform administrator accounts',
-        );
-      }
-      if (dto.role === UserRole.PLATFORM_ADMIN) {
-        throw new ForbiddenException(
-          'Only platform administrators can assign the platform administrator role',
-        );
-      }
-      if (
-        dto.role &&
-        dto.role !== UserRole.ADMIN &&
-        dto.role !== UserRole.RECEPTIONIST
-      ) {
-        throw new ForbiddenException('Invalid role for clinic staff');
-      }
-    }
+    this.assertCanViewUser(requestingUser, user.role);
+    this.assertClinicStaffModification(requestingUser, user, userId, dto);
 
     if (userId === requestingUser.id && dto.role && dto.role !== user.role) {
       throw new ForbiddenException('You cannot change your own role');
@@ -152,6 +157,69 @@ export class UsersService {
 
     await user.save();
     return this.userService.toPublic(user);
+  }
+
+  private assertCanViewUser(
+    requestingUser: AuthenticatedUser,
+    targetRole: UserRole,
+  ): void {
+    if (
+      !isPlatformAdmin(requestingUser) &&
+      targetRole === UserRole.PLATFORM_ADMIN
+    ) {
+      throw new ForbiddenException('Access denied for this user');
+    }
+  }
+
+  /** Clinic admins manage receptionists only; platform admins manage clinic accounts. */
+  private assertClinicStaffModification(
+    requestingUser: AuthenticatedUser,
+    target: UserDocument,
+    targetUserId: string,
+    dto: UpdateUserDto,
+  ): void {
+    if (isPlatformAdmin(requestingUser)) {
+      if (dto.role === UserRole.PLATFORM_ADMIN) {
+        throw new ForbiddenException(
+          'Cannot assign the platform administrator role from this endpoint',
+        );
+      }
+      return;
+    }
+
+    if (target.role === UserRole.PLATFORM_ADMIN) {
+      throw new ForbiddenException(
+        'Only platform administrators can modify platform administrator accounts',
+      );
+    }
+
+    const isSelf = targetUserId === requestingUser.id;
+
+    if (target.role === UserRole.ADMIN && !isSelf) {
+      throw new ForbiddenException(
+        'Clinic administrators can only manage receptionist accounts. Contact the platform operator for other clinic admins.',
+      );
+    }
+
+    if (dto.role === UserRole.PLATFORM_ADMIN) {
+      throw new ForbiddenException(
+        'Only platform administrators can assign the platform administrator role',
+      );
+    }
+
+    if (dto.role === UserRole.ADMIN && !isSelf) {
+      throw new ForbiddenException(
+        'Clinic administrators cannot assign the clinic admin role',
+      );
+    }
+
+    if (
+      dto.role &&
+      dto.role !== UserRole.RECEPTIONIST &&
+      target.role === UserRole.RECEPTIONIST
+    ) {
+      throw new ForbiddenException('Invalid role for clinic staff');
+    }
   }
 
   private resolveClinicId(

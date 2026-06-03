@@ -75,4 +75,103 @@ describe('API integration (e2e)', () => {
     expect(res.status).toBe(201);
     expect(res.body.timeSlot).toBe('09:00');
   });
+
+  it('POST /appointments/:id/confirm confirms appointment', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const book = await request(ctx.app.getHttpServer())
+      .post('/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ patientId, date: today, timeSlot: '10:00' });
+
+    const appointmentId = book.body._id as string;
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/appointments/${appointmentId}/confirm`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('confirmed');
+  });
+
+  it('PATCH /queue/:id/skip skips a waiting entry', async () => {
+    const add = await request(ctx.app.getHttpServer())
+      .post('/queue/add')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ patientId });
+
+    const entryId = add.body._id as string;
+    const res = await request(ctx.app.getHttpServer())
+      .patch(`/queue/${entryId}/skip`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('skipped');
+  });
+
+  it('rejects booking when slot is at capacity', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const slot = '11:00';
+
+    for (let i = 0; i < 5; i++) {
+      const p = await request(ctx.app.getHttpServer())
+        .post('/patients')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: `Slot Patient ${i}`, phone: `+1555000${1000 + i}` });
+      await request(ctx.app.getHttpServer())
+        .post('/appointments/book')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ patientId: p.body._id, date: today, timeSlot: slot })
+        .expect(201);
+    }
+
+    const overflow = await request(ctx.app.getHttpServer())
+      .post('/patients')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Overflow', phone: '+15559999001' });
+
+    const res = await request(ctx.app.getHttpServer())
+      .post('/appointments/book')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        patientId: overflow.body._id,
+        date: today,
+        timeSlot: slot,
+      });
+
+    expect(res.status).toBe(409);
+  });
+
+  it('POST /auth/forgot-password and reset-password flow', async () => {
+    const forgot = await request(ctx.app.getHttpServer())
+      .post('/auth/forgot-password')
+      .send({ identifier: 'e2e-admin@test.local' });
+
+    expect(forgot.status).toBe(200);
+    expect(forgot.body.resetToken).toBeDefined();
+
+    const reset = await request(ctx.app.getHttpServer())
+      .post('/auth/reset-password')
+      .send({
+        token: forgot.body.resetToken,
+        password: 'newpassword123',
+      });
+
+    expect(reset.status).toBe(200);
+
+    const loginOld = await request(ctx.app.getHttpServer())
+      .post('/auth/login')
+      .send({ identifier: 'e2e-admin@test.local', password: 'password123' });
+    expect(loginOld.status).toBe(401);
+
+    const loginNew = await request(ctx.app.getHttpServer())
+      .post('/auth/login')
+      .send({ identifier: 'e2e-admin@test.local', password: 'newpassword123' });
+    expect(loginNew.status).toBe(200);
+    token = loginNew.body.accessToken;
+  });
+
+  it('GET /health includes MongoDB ping', async () => {
+    const res = await request(ctx.app.getHttpServer()).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.mongodb?.connected).toBe(true);
+  });
 });
