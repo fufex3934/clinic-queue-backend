@@ -48,6 +48,8 @@ export interface ClinicDashboardStats {
   clinicId: string;
   generatedAt: string;
   today: string;
+  /** IANA timezone used for "today" and day-bound KPIs */
+  timezone: string;
   kpis: ClinicDashboardKpis;
   queueLast7Days: QueueDaySeriesPoint[];
   appointmentsLast7Days: AppointmentDaySeriesPoint[];

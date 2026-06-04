@@ -8,6 +8,10 @@ import {
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { toStartOfDay } from '../common/utils/date.util';
+import {
+  dateKeyToStorageDate,
+  getTodayInTimeZone,
+} from '../common/utils/timezone-date.util';
 import { toObjectId } from '../common/utils/mongo.util';
 import { assertTimeSlotWithinWorkingHours } from '../common/utils/working-hours.util';
 import { Clinic, ClinicDocument } from '../clinic/schemas/clinic.schema';
@@ -155,8 +159,15 @@ export class AppointmentService {
       throw new ConflictException('Appointment is already checked in');
     }
 
-    const today = toStartOfDay();
-    if (appointment.date.getTime() !== today.getTime()) {
+    const clinic = await this.clinicModel
+      .findById(toObjectId(clinicId))
+      .select('timezone')
+      .lean()
+      .exec();
+    const timeZone = clinic?.timezone?.trim() || 'Africa/Addis_Ababa';
+    const todayKey = getTodayInTimeZone(timeZone);
+    const todayStorage = dateKeyToStorageDate(todayKey);
+    if (appointment.date.getTime() !== todayStorage.getTime()) {
       throw new BadRequestException(
         'Check-in is only allowed on the appointment day',
       );

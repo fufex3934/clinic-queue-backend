@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import { ClinicModule } from '../clinic/clinic.module';
+import { SmsModule } from '../common/sms/sms.module';
 import { PatientModule } from '../patient/patient.module';
 import { PaymentModule } from '../payment/payment.module';
 import { RealtimeModule } from '../realtime/realtime.module';
@@ -15,6 +17,8 @@ import { Queue, QueueSchema } from './schemas/queue.schema';
 @Module({
   imports: [
     AuthModule,
+    ClinicModule,
+    SmsModule,
     PatientModule,
     PaymentModule,
     RealtimeModule,

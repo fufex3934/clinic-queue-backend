@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Connection, Model } from 'mongoose';
+import { SmsService } from '../common/sms/sms.service';
 import { toObjectId } from '../common/utils/mongo.util';
+import { ClinicService } from '../clinic/clinic.service';
 import { PatientService } from '../patient/patient.service';
 import { AddToQueueDto } from './dto/add-to-queue.dto';
 import {
@@ -25,9 +27,53 @@ export class QueueService {
     @InjectModel(QueueCounter.name)
     private readonly counterModel: Model<QueueCounterDocument>,
     private readonly patientService: PatientService,
+    private readonly clinicService: ClinicService,
+    private readonly smsService: SmsService,
     @InjectConnection()
     private readonly connection: Connection,
   ) {}
+
+  private async dayScope(clinicId: string) {
+    const timeZone = await this.clinicService.getTimezone(clinicId);
+    return resolveClinicDayScope(clinicId, timeZone);
+  }
+
+  private patientPhone(entry: QueueDocument): string | null {
+    const patient = entry.patientId;
+    if (
+      patient &&
+      typeof patient === 'object' &&
+      'phone' in patient &&
+      typeof (patient as { phone?: string }).phone === 'string'
+    ) {
+      return (patient as { phone: string }).phone;
+    }
+    return null;
+  }
+
+  private queueSms(
+    clinicId: string,
+    entry: QueueDocument,
+    kind: 'token' | 'serving',
+  ): void {
+    const phone = this.patientPhone(entry);
+    if (!phone) return;
+    void this.clinicService.getDisplayName(clinicId).then((clinicName) => {
+      const send =
+        kind === 'token'
+          ? this.smsService.notifyQueueToken(
+              phone,
+              clinicName,
+              entry.tokenNumber,
+            )
+          : this.smsService.notifyNowServing(
+              phone,
+              clinicName,
+              entry.tokenNumber,
+            );
+      void send.catch(() => undefined);
+    });
+  }
 
   /**
    * Atomically issues the next token for this clinic + day only.
@@ -59,7 +105,7 @@ export class QueueService {
   }
 
   async add(clinicId: string, addToQueueDto: AddToQueueDto) {
-    const scope = resolveClinicDayScope(clinicId);
+    const scope = await this.dayScope(clinicId);
     const patientObjectId = toObjectId(addToQueueDto.patientId);
 
     const patientInClinic = await this.patientService.existsInClinic(
@@ -93,6 +139,7 @@ export class QueueService {
           status: QueueStatus.WAITING,
         });
         await entry.populate('patientId', 'name phone');
+        this.queueSms(clinicId, entry, 'token');
         return entry;
       } catch (error: unknown) {
         if (this.isDuplicateKeyError(error) && attempt < maxAttempts - 1) {
@@ -113,7 +160,7 @@ export class QueueService {
   }
 
   async getToday(clinicId: string) {
-    const scope = resolveClinicDayScope(clinicId);
+    const scope = await this.dayScope(clinicId);
     return this.queueModel
       .find({ clinicId: scope.clinicObjectId, date: scope.date })
       .sort({ tokenNumber: 1 })
@@ -126,7 +173,7 @@ export class QueueService {
    * waiting patient (lowest token) to serving — prevents dual-serving races.
    */
   async serveNext(clinicId: string): Promise<QueueDocument> {
-    const scope = resolveClinicDayScope(clinicId);
+    const scope = await this.dayScope(clinicId);
     const session = await this.connection.startSession();
 
     try {
@@ -161,6 +208,7 @@ export class QueueService {
         throw new NotFoundException('No patients waiting in today\'s queue');
       }
 
+      this.queueSms(clinicId, entry, 'serving');
       return entry;
     } finally {
       await session.endSession();
@@ -190,7 +238,7 @@ export class QueueService {
   }
 
   async forceServeEntry(clinicId: string, entryId: string) {
-    const scope = resolveClinicDayScope(clinicId);
+    const scope = await this.dayScope(clinicId);
     const session = await this.connection.startSession();
 
     try {
@@ -228,6 +276,7 @@ export class QueueService {
         );
       }
 
+      this.queueSms(clinicId, entry, 'serving');
       return entry;
     } finally {
       await session.endSession();
@@ -235,7 +284,7 @@ export class QueueService {
   }
 
   async reorderWaiting(clinicId: string, orderedEntryIds: string[]) {
-    const scope = resolveClinicDayScope(clinicId);
+    const scope = await this.dayScope(clinicId);
     const uniqueIds = [...new Set(orderedEntryIds)];
 
     const waiting = await this.queueModel
@@ -285,7 +334,7 @@ export class QueueService {
   }
 
   private async findTodayEntry(clinicId: string, entryId: string) {
-    const scope = resolveClinicDayScope(clinicId);
+    const scope = await this.dayScope(clinicId);
     const entry = await this.queueModel
       .findOne({
         _id: toObjectId(entryId),

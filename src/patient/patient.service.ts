@@ -11,6 +11,10 @@ import {
   AppointmentDocument,
 } from '../appointment/schemas/appointment.schema';
 import { ageYearsFromDateOfBirth } from '../common/utils/patient-age.util';
+import {
+  normalizeEthiopianPhone,
+  phoneSearchVariants,
+} from '../common/utils/phone.util';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import {
   buildMongoSort,
@@ -51,11 +55,12 @@ export class PatientService {
   ) {}
 
   async create(clinicId: string, dto: CreatePatientDto) {
-    await this.assertNamePhoneAvailable(clinicId, dto.name, dto.phone);
+    const phone = normalizeEthiopianPhone(dto.phone);
+    await this.assertNamePhoneAvailable(clinicId, dto.name, phone);
     const patient = await this.patientModel.create({
       clinicId: toObjectId(clinicId),
       name: dto.name,
-      phone: dto.phone,
+      phone,
       ...this.profileFromDto(dto),
     });
     return this.toResponse(patient);
@@ -71,13 +76,25 @@ export class PatientService {
         clinicId: toObjectId(clinicId),
       };
       if (query.search?.trim()) {
-        const escaped = escapeRegex(query.search.trim());
-        filter.$or = [
+        const term = query.search.trim();
+        const escaped = escapeRegex(term);
+        const or: Record<string, unknown>[] = [
           { name: { $regex: escaped, $options: 'i' } },
-          { phone: { $regex: escaped, $options: 'i' } },
-          { secondaryPhone: { $regex: escaped, $options: 'i' } },
           { notes: { $regex: escaped, $options: 'i' } },
         ];
+        const phoneVariants = phoneSearchVariants(term);
+        if (phoneVariants.length > 0) {
+          or.push(
+            { phone: { $in: phoneVariants } },
+            { secondaryPhone: { $in: phoneVariants } },
+          );
+        } else {
+          or.push(
+            { phone: { $regex: escaped, $options: 'i' } },
+            { secondaryPhone: { $regex: escaped, $options: 'i' } },
+          );
+        }
+        filter.$or = or;
       }
       const sort = buildMongoSort(
         query.sortBy,
@@ -111,15 +128,16 @@ export class PatientService {
       throw new NotFoundException(`Patient ${patientId} not found`);
     }
 
+    const phone = normalizeEthiopianPhone(dto.phone);
     await this.assertNamePhoneAvailable(
       clinicId,
       dto.name,
-      dto.phone,
+      phone,
       patient._id,
     );
 
     patient.name = dto.name;
-    patient.phone = dto.phone;
+    patient.phone = phone;
     Object.assign(patient, this.profileFromDto(dto));
     const saved = await patient.save();
     return this.toResponse(saved);
@@ -150,10 +168,13 @@ export class PatientService {
   }
 
   private profileFromDto(dto: CreatePatientDto | UpdatePatientDto) {
+    const secondary = dto.secondaryPhone?.trim();
     return {
       dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
       gender: dto.gender,
-      secondaryPhone: dto.secondaryPhone,
+      secondaryPhone: secondary
+        ? normalizeEthiopianPhone(secondary)
+        : undefined,
       notes: dto.notes,
     };
   }
@@ -164,9 +185,11 @@ export class PatientService {
     phone: string,
     excludeId?: Types.ObjectId,
   ) {
+    const phoneNorm = normalizeEthiopianPhone(phone);
+    const phoneMatches = phoneSearchVariants(phoneNorm);
     const filter: Record<string, unknown> = {
       clinicId: toObjectId(clinicId),
-      phone: phone.trim(),
+      phone: { $in: phoneMatches.length > 0 ? phoneMatches : [phoneNorm] },
       name: { $regex: new RegExp(`^${escapeRegex(name.trim())}$`, 'i') },
     };
     if (excludeId) {

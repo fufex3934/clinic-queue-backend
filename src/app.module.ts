@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { AppointmentModule } from './appointment/appointment.module';
 import { BootstrapModule } from './common/bootstrap/bootstrap.module';
 import { MailModule } from './common/mail/mail.module';
+import { SmsModule } from './common/sms/sms.module';
 import { StorageModule } from './common/storage/storage.module';
 import { ClinicModule } from './clinic/clinic.module';
 import { ErrorLoggingInterceptor } from './common/observability/error-logging.interceptor';
@@ -46,6 +47,7 @@ import { UserModule } from './user/user.module';
     }),
     ObservabilityModule,
     MailModule,
+    SmsModule,
     StorageModule,
     BootstrapModule,
     HealthModule,

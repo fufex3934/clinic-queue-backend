@@ -182,6 +182,24 @@ export class ClinicService {
     return { deleted: true, id };
   }
 
+  async getDisplayName(clinicId: string): Promise<string> {
+    const clinic = await this.clinicModel
+      .findById(toObjectId(clinicId))
+      .select('name')
+      .lean()
+      .exec();
+    return clinic?.name ?? 'Clinic';
+  }
+
+  async getTimezone(clinicId: string): Promise<string> {
+    const clinic = await this.clinicModel
+      .findById(toObjectId(clinicId))
+      .select('timezone')
+      .lean()
+      .exec();
+    return clinic?.timezone?.trim() || 'Africa/Addis_Ababa';
+  }
+
   private async findOneById(id: string) {
     const clinic = await this.clinicModel.findById(toObjectId(id)).exec();
     if (!clinic) {

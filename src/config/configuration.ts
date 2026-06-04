@@ -19,6 +19,13 @@ export default () => ({
     from: process.env.SMTP_FROM ?? 'noreply@clinic-queue.local',
     secure: process.env.SMTP_SECURE === 'true',
   },
+  sms: {
+    enabled: process.env.SMS_ENABLED === 'true',
+    apiUrl: process.env.SMS_API_URL ?? '',
+    apiKey: process.env.SMS_API_KEY ?? '',
+    /** Message language: en | am | om (default am for Ethiopia). */
+    locale: process.env.SMS_LOCALE ?? 'am',
+  },
   storage: {
     provider: (process.env.STORAGE_PROVIDER ?? 'local') as 'local' | 's3',
     localDir: process.env.LOCAL_UPLOAD_DIR ?? 'uploads',

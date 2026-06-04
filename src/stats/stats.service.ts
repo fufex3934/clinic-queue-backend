@@ -8,7 +8,15 @@ import {
   AppointmentStatus,
 } from '../appointment/schemas/appointment.schema';
 import { Clinic, ClinicDocument } from '../clinic/schemas/clinic.schema';
-import { toDateKey, toStartOfDay } from '../common/utils/date.util';
+import { toStartOfDay } from '../common/utils/date.util';
+import {
+  dateKeyToStorageDate,
+  DEFAULT_CLINIC_TIMEZONE,
+  formatShortWeekdayInTimeZone,
+  getDayBoundsInTimeZone,
+  getTodayInTimeZone,
+  shiftDateKey,
+} from '../common/utils/timezone-date.util';
 import { toObjectId } from '../common/utils/mongo.util';
 import { Patient, PatientDocument } from '../patient/schemas/patient.schema';
 import { Queue, QueueDocument, QueueStatus } from '../queue/schemas/queue.schema';
@@ -55,13 +63,18 @@ export class StatsService {
 
   async getClinicDashboard(clinicId: string): Promise<ClinicDashboardStats> {
     const clinicObjectId = toObjectId(clinicId);
-    const today = toStartOfDay();
-    const todayKey = toDateKey(today);
-    const last7Days = this.buildLastNDays(7);
+    const clinic = await this.clinicModel.findById(clinicObjectId).exec();
+    const timeZone =
+      clinic?.timezone?.trim() || DEFAULT_CLINIC_TIMEZONE;
+    const todayKey = getTodayInTimeZone(timeZone);
+    const today = dateKeyToStorageDate(todayKey);
+    const { start: todayStart, end: todayEnd } = getDayBoundsInTimeZone(
+      todayKey,
+      timeZone,
+    );
+    const last7Days = this.buildLastNDays(7, timeZone);
     const dayDates = last7Days.map((d) => d.date);
 
-    const tomorrow = this.addUtcDays(today, 1);
-    const clinic = await this.clinicModel.findById(clinicObjectId).exec();
     const slotCapacity =
       clinic?.maxAppointmentsPerSlot ?? MAX_APPOINTMENTS_PER_SLOT;
 
@@ -79,7 +92,7 @@ export class StatsService {
       this.patientModel
         .countDocuments({
           clinicId: clinicObjectId,
-          createdAt: { $gte: today, $lt: tomorrow },
+          createdAt: { $gte: todayStart, $lt: todayEnd },
         })
         .exec(),
       this.aggregateQueueStatusToday([clinicObjectId], today),
@@ -104,6 +117,7 @@ export class StatsService {
       clinicId,
       generatedAt: new Date().toISOString(),
       today: todayKey,
+      timezone: timeZone,
       kpis: {
         patientsTotal,
         patientsCreatedToday,
@@ -133,9 +147,9 @@ export class StatsService {
   }
 
   async getPlatformDashboard(): Promise<PlatformDashboardStats> {
-    const today = toStartOfDay();
-    const todayKey = toDateKey(today);
-    const last7Days = this.buildLastNDays(7);
+    const todayKey = getTodayInTimeZone(DEFAULT_CLINIC_TIMEZONE);
+    const today = dateKeyToStorageDate(todayKey);
+    const last7Days = this.buildLastNDays(7, DEFAULT_CLINIC_TIMEZONE);
     const dayDates = last7Days.map((d) => d.date);
 
     const clinics = await this.clinicModel.find().sort({ name: 1 }).exec();
@@ -499,24 +513,24 @@ export class StatsService {
     return d;
   }
 
-  private buildLastNDays(n: number): {
+  private buildLastNDays(
+    n: number,
+    timeZone: string = DEFAULT_CLINIC_TIMEZONE,
+  ): {
     date: Date;
     dateKey: string;
     label: string;
   }[] {
     const days: { date: Date; dateKey: string; label: string }[] = [];
-    const today = toStartOfDay();
+    const todayKey = getTodayInTimeZone(timeZone);
 
     for (let offset = n - 1; offset >= 0; offset -= 1) {
-      const date = new Date(today);
-      date.setUTCDate(date.getUTCDate() - offset);
+      const dateKey = shiftDateKey(todayKey, -offset);
+      const date = dateKeyToStorageDate(dateKey);
       days.push({
         date,
-        dateKey: toDateKey(date),
-        label: date.toLocaleDateString('en-US', {
-          weekday: 'short',
-          timeZone: 'UTC',
-        }),
+        dateKey,
+        label: formatShortWeekdayInTimeZone(dateKey, timeZone),
       });
     }
 
