@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model } from 'mongoose';
+import { ClientSession, Connection, Model } from 'mongoose';
 import { SmsService } from '../common/sms/sms.service';
 import { toObjectId } from '../common/utils/mongo.util';
 import { ClinicService } from '../clinic/clinic.service';
@@ -18,6 +18,10 @@ import {
 } from './schemas/queue-counter.schema';
 import { Queue, QueueDocument, QueueStatus } from './schemas/queue.schema';
 import { resolveClinicDayScope } from './utils/queue-scope.util';
+
+export type AddToQueueOptions = {
+  session?: ClientSession;
+};
 
 @Injectable()
 export class QueueService {
@@ -81,6 +85,7 @@ export class QueueService {
    */
   private async issueNextToken(
     scope: ReturnType<typeof resolveClinicDayScope>,
+    session?: ClientSession,
   ): Promise<number> {
     const counter = await this.counterModel
       .findOneAndUpdate(
@@ -93,7 +98,7 @@ export class QueueService {
             dateKey: scope.dateKey,
           },
         },
-        { new: true, upsert: true },
+        { new: true, upsert: true, ...(session ? { session } : {}) },
       )
       .exec();
 
@@ -104,7 +109,17 @@ export class QueueService {
     return counter.lastToken;
   }
 
-  async add(clinicId: string, addToQueueDto: AddToQueueDto) {
+  /** Post-commit SMS when add() ran inside a transaction. */
+  notifyTokenIssued(clinicId: string, entry: QueueDocument): void {
+    this.queueSms(clinicId, entry, 'token');
+  }
+
+  async add(
+    clinicId: string,
+    addToQueueDto: AddToQueueDto,
+    options?: AddToQueueOptions,
+  ) {
+    const session = options?.session;
     const scope = await this.dayScope(clinicId);
     const patientObjectId = toObjectId(addToQueueDto.patientId);
 
@@ -116,30 +131,39 @@ export class QueueService {
       throw new NotFoundException(`Patient ${addToQueueDto.patientId} not found`);
     }
 
-    const alreadyWaiting = await this.queueModel.exists({
+    const waitingFilter = {
       clinicId: scope.clinicObjectId,
       date: scope.date,
       patientId: patientObjectId,
       status: QueueStatus.WAITING,
-    });
+    };
+    const alreadyWaiting = session
+      ? await this.queueModel.exists(waitingFilter).session(session).exec()
+      : await this.queueModel.exists(waitingFilter).exec();
     if (alreadyWaiting) {
       throw new ConflictException('Patient is already in today\'s waiting queue');
     }
 
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const tokenNumber = await this.issueNextToken(scope);
+      const tokenNumber = await this.issueNextToken(scope, session);
 
       try {
-        const entry = await this.queueModel.create({
+        const payload = {
           clinicId: scope.clinicObjectId,
           patientId: patientObjectId,
           date: scope.date,
           tokenNumber,
           status: QueueStatus.WAITING,
-        });
-        await entry.populate('patientId', 'name phone');
-        this.queueSms(clinicId, entry, 'token');
+        };
+        const entry = session
+          ? (await this.queueModel.create([payload], { session }))[0]
+          : await this.queueModel.create(payload);
+
+        if (!session) {
+          await entry.populate('patientId', 'name phone');
+          this.queueSms(clinicId, entry, 'token');
+        }
         return entry;
       } catch (error: unknown) {
         if (this.isDuplicateKeyError(error) && attempt < maxAttempts - 1) {

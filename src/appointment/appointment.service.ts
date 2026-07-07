@@ -174,15 +174,64 @@ export class AppointmentService {
     }
 
     const patientId = appointment.patientId.toString();
-    const queueEntry = await this.queueService.add(clinicId, { patientId });
+    const session = await this.connection.startSession();
 
-    appointment.status = AppointmentStatus.ARRIVED;
-    await appointment.save();
+    try {
+      const result = await session.withTransaction(async () => {
+        const updated = await this.appointmentModel
+          .findOneAndUpdate(
+            {
+              _id: toObjectId(appointmentId),
+              clinicId: toObjectId(clinicId),
+              date: todayStorage,
+              status: {
+                $in: [
+                  AppointmentStatus.SCHEDULED,
+                  AppointmentStatus.CONFIRMED,
+                ],
+              },
+            },
+            { status: AppointmentStatus.ARRIVED },
+            { new: true, session },
+          )
+          .exec();
 
-    return {
-      appointment: await appointment.populate('patientId', 'name phone'),
-      queueEntry,
-    };
+        if (!updated) {
+          throw new ConflictException('Appointment is already checked in');
+        }
+
+        const queueEntry = await this.queueService.add(
+          clinicId,
+          { patientId },
+          { session },
+        );
+
+        return { appointment: updated, queueEntry };
+      });
+
+      if (!result?.appointment || !result.queueEntry) {
+        throw new InternalServerErrorException('Failed to check in appointment');
+      }
+
+      await result.queueEntry.populate('patientId', 'name phone');
+      this.queueService.notifyTokenIssued(clinicId, result.queueEntry);
+
+      return {
+        appointment: await result.appointment.populate('patientId', 'name phone'),
+        queueEntry: result.queueEntry,
+      };
+    } catch (error) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to check in appointment');
+    } finally {
+      await session.endSession();
+    }
   }
 
   async confirm(clinicId: string, appointmentId: string) {
