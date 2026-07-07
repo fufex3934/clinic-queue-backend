@@ -309,7 +309,6 @@ export class QueueService {
 
   async reorderWaiting(clinicId: string, orderedEntryIds: string[]) {
     const scope = await this.dayScope(clinicId);
-    const uniqueIds = [...new Set(orderedEntryIds)];
 
     const waiting = await this.queueModel
       .find({
@@ -320,41 +319,127 @@ export class QueueService {
       .sort({ tokenNumber: 1 })
       .exec();
 
-    if (uniqueIds.length !== waiting.length) {
+    const validatedIds = await this.validateReorderInput(
+      scope,
+      orderedEntryIds,
+      waiting,
+    );
+
+    const tokenNumbers = waiting.map((e) => e.tokenNumber).sort((a, b) => a - b);
+    const waitingFilter = {
+      clinicId: scope.clinicObjectId,
+      date: scope.date,
+      status: QueueStatus.WAITING,
+    };
+    const session = await this.connection.startSession();
+
+    try {
+      await session.withTransaction(async () => {
+        for (const entry of waiting) {
+          const phase1 = await this.queueModel
+            .updateOne(
+              { _id: entry._id, ...waitingFilter },
+              { tokenNumber: -entry.tokenNumber },
+              { session, runValidators: false },
+            )
+            .exec();
+          if (phase1.modifiedCount !== 1) {
+            throw new ConflictException(
+              'Queue changed during reorder; please retry',
+            );
+          }
+        }
+
+        for (let i = 0; i < validatedIds.length; i++) {
+          const phase2 = await this.queueModel
+            .updateOne(
+              { _id: toObjectId(validatedIds[i]), ...waitingFilter },
+              { tokenNumber: tokenNumbers[i] },
+              { session, runValidators: false },
+            )
+            .exec();
+          if (phase2.modifiedCount !== 1) {
+            throw new ConflictException(
+              'Queue changed during reorder; please retry',
+            );
+          }
+        }
+      });
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+      if (this.isDuplicateKeyError(error)) {
+        throw new ConflictException(
+          'Unable to reorder queue due to a token conflict; please retry',
+        );
+      }
+      throw new InternalServerErrorException('Failed to reorder queue');
+    } finally {
+      await session.endSession();
+    }
+
+    return this.getToday(clinicId);
+  }
+
+  private async validateReorderInput(
+    scope: ReturnType<typeof resolveClinicDayScope>,
+    orderedEntryIds: string[],
+    waiting: QueueDocument[],
+  ): Promise<string[]> {
+    const seen = new Set<string>();
+    for (const id of orderedEntryIds) {
+      if (seen.has(id)) {
+        throw new BadRequestException(
+          'orderedEntryIds must not contain duplicate IDs',
+        );
+      }
+      seen.add(id);
+    }
+
+    if (waiting.length === 0) {
+      throw new BadRequestException('There are no waiting entries to reorder');
+    }
+
+    if (orderedEntryIds.length !== waiting.length) {
       throw new BadRequestException(
         'orderedEntryIds must include every waiting entry exactly once',
       );
     }
 
     const waitingIdSet = new Set(waiting.map((e) => e._id.toString()));
-    for (const id of uniqueIds) {
-      if (!waitingIdSet.has(id)) {
+    const notWaitingIds = orderedEntryIds.filter((id) => !waitingIdSet.has(id));
+    if (notWaitingIds.length === 0) {
+      return orderedEntryIds;
+    }
+
+    const entries = await this.queueModel
+      .find({ _id: { $in: notWaitingIds.map((id) => toObjectId(id)) } })
+      .exec();
+    const entryById = new Map(entries.map((e) => [e._id.toString(), e]));
+
+    for (const id of notWaitingIds) {
+      const entry = entryById.get(id);
+      if (!entry) {
+        throw new BadRequestException(`Queue entry ${id} not found`);
+      }
+      if (
+        entry.clinicId.toString() !== scope.clinicObjectId.toString() ||
+        entry.date.getTime() !== scope.date.getTime()
+      ) {
         throw new BadRequestException(
-          `Queue entry ${id} is not in today's waiting list`,
+          `Queue entry ${id} is not in today's queue for this clinic`,
         );
       }
+      throw new BadRequestException(
+        `Queue entry ${id} cannot be reordered (status: ${entry.status}); only waiting entries can be reordered`,
+      );
     }
 
-    const tokenNumbers = waiting.map((e) => e.tokenNumber).sort((a, b) => a - b);
-    const session = await this.connection.startSession();
-
-    try {
-      await session.withTransaction(async () => {
-        for (let i = 0; i < uniqueIds.length; i++) {
-          await this.queueModel
-            .updateOne(
-              { _id: toObjectId(uniqueIds[i]) },
-              { tokenNumber: tokenNumbers[i] },
-              { session },
-            )
-            .exec();
-        }
-      });
-    } finally {
-      await session.endSession();
-    }
-
-    return this.getToday(clinicId);
+    return orderedEntryIds;
   }
 
   private async findTodayEntry(clinicId: string, entryId: string) {
