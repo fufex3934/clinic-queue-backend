@@ -8,6 +8,10 @@ import { AppModule } from '../../src/app.module';
 import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
 import { BCRYPT_ROUNDS } from '../../src/common/constants/security.constants';
 import { UserRole } from '../../src/user/schemas/user.schema';
+import {
+  assertTransactionsSupported,
+  startMemoryReplicaSet,
+} from './mongo-memory.helper';
 
 export interface E2eContext {
   app: INestApplication;
@@ -16,13 +20,10 @@ export interface E2eContext {
 }
 
 export async function createE2eApp(): Promise<E2eContext> {
-  const replSet = await MongoMemoryReplSet.create({
-    replSet: { count: 1, storageEngine: 'wiredTiger' },
-  });
-
-  await replSet.waitUntilRunning();
+  const replSet = await startMemoryReplicaSet();
 
   process.env.MONGODB_URI = replSet.getUri();
+  process.env.NODE_ENV = 'test';
   process.env.JWT_SECRET = 'test-jwt-secret-for-e2e-tests-min-32-chars';
   process.env.PLATFORM_ADMIN_EMAIL = '';
   process.env.PLATFORM_ADMIN_PASSWORD = '';
@@ -43,6 +44,7 @@ export async function createE2eApp(): Promise<E2eContext> {
   await app.init();
 
   const connection = app.get<Connection>(getConnectionToken());
+  await assertTransactionsSupported(connection);
   const clinics = connection.collection('clinics');
   const users = connection.collection('users');
 

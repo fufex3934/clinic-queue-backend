@@ -11,6 +11,39 @@ function readEnv(key: string, source: EnvSource): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function isProduction(source: EnvSource): boolean {
+  return readEnv('NODE_ENV', source) === 'production';
+}
+
+/** `mongodb+srv` (e.g. Atlas) or an explicit `replicaSet=` query parameter. */
+function mongoUriIndicatesReplicaSet(uri: string): boolean {
+  const trimmed = uri.trim();
+  if (trimmed.toLowerCase().startsWith('mongodb+srv://')) {
+    return true;
+  }
+  return /replicaSet=/i.test(trimmed);
+}
+
+function validateMongoReplicaSetForProduction(
+  source: EnvSource,
+  mongoUri: string,
+): void {
+  if (!isProduction(source)) {
+    return;
+  }
+
+  if (!mongoUriIndicatesReplicaSet(mongoUri)) {
+    console.error(
+      'MongoDB transactions require a replica set. ' +
+        'Set MONGODB_URI to a mongodb+srv:// connection or include replicaSet= in the connection string. ' +
+        'See backend/docs/MONGODB_PRODUCTION.md',
+    );
+    process.exit(1);
+  }
+
+  console.log('MongoDB replica set detected');
+}
+
 /** Validate required env vars from Nest config or process.env (after dotenv load). */
 export function validateEnvironment(source: EnvSource = process.env): void {
   const jwtSecret = readEnv('JWT_SECRET', source);
@@ -28,4 +61,6 @@ export function validateEnvironment(source: EnvSource = process.env): void {
   if (!mongoUri) {
     throw new Error('MONGODB_URI is required. Set it in .env before starting the server.');
   }
+
+  validateMongoReplicaSetForProduction(source, mongoUri);
 }
