@@ -16,6 +16,7 @@
     "seed:demo": "ts-node --transpile-only scripts/seed-dashboard-demo.ts",
     "seed:dashboard": "ts-node --transpile-only scripts/seed-dashboard-demo.ts",
     "seed:pilot": "ts-node --transpile-only scripts/seed-pilot.ts",
+    "ensure-subscriptions": "ts-node -r tsconfig-paths/register scripts/ensure-subscriptions.ts",
     "backup:mongodb": "./scripts/backup-mongodb.sh",
     "restore:mongodb": "./scripts/restore-mongodb.sh",
     "test": "jest --config jest.config.js",

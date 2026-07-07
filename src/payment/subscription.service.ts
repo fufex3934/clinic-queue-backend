@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { toObjectId } from '../common/utils/mongo.util';
@@ -21,8 +21,15 @@ export type RenewalStatus =
   | 'grace'
   | 'expired';
 
+export type ClinicOperateResult = {
+  allowed: boolean;
+  subscription: SubscriptionDocument;
+};
+
 @Injectable()
 export class SubscriptionService {
+  private readonly logger = new Logger(SubscriptionService.name);
+
   constructor(
     @InjectModel(Subscription.name)
     private readonly subscriptionModel: Model<SubscriptionDocument>,
@@ -43,6 +50,37 @@ export class SubscriptionService {
       return existing;
     }
     return this.activateOrExtend(clinicId, SubscriptionPlan.STARTER);
+  }
+
+  /**
+   * Resolves the clinic subscription (provisioning a starter trial if missing)
+   * and reports whether operational access is allowed.
+   * Existing subscriptions — including expired — are never modified.
+   */
+  async ensureClinicCanOperate(clinicId: string): Promise<ClinicOperateResult> {
+    const existing = await this.findByClinicId(clinicId);
+    let subscription: SubscriptionDocument;
+
+    if (existing) {
+      subscription = existing;
+    } else {
+      this.logger.log(
+        `Auto-provisioning starter trial for clinic ${clinicId}`,
+      );
+      const created = await this.ensureStarterTrialIfMissing(clinicId);
+      if (!created) {
+        throw new Error(
+          `Failed to provision starter trial for clinic ${clinicId}`,
+        );
+      }
+      subscription = created;
+    }
+
+    const graceEnd = new Date(subscription.endDate);
+    graceEnd.setUTCDate(graceEnd.getUTCDate() + SUBSCRIPTION_GRACE_DAYS);
+    const allowed = subscription.isActive && new Date() <= graceEnd;
+
+    return { allowed, subscription };
   }
 
   async findAllActive(): Promise<SubscriptionDocument[]> {

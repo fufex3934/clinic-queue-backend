@@ -37,7 +37,7 @@ export class SubscriptionGuard implements CanActivate {
       return true;
     }
 
-    const allowed = await this.subscriptionService.isClinicAccessAllowed(
+    const { allowed } = await this.subscriptionService.ensureClinicCanOperate(
       user.clinicId,
     );
     if (!allowed) {
